@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "daxpay-open-sdk"
+version = "1.0.0"
+description = "DaxPay 开放支付平台 Python SDK（核心支付子集：pay / close / refund / query / 回调验签）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "LGPL-3.0-only" }
+keywords = ["daxpay", "payment", "sdk", "alipay", "wechat"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+]
+# 唯一第三方依赖：RSA 签名（标准库不含 RSA 实现）；HTTP 走标准库 urllib
+dependencies = ["cryptography>=41"]
+
+[project.urls]
+Homepage = "https://github.com/opendaxpay/dax-pay-sdk-python"
+Repository = "https://github.com/opendaxpay/dax-pay-sdk-python"
+Gitee = "https://gitee.com/opendaxpay/dax-pay-sdk-python"
+
+[tool.setuptools.packages.find]
+include = ["daxpay_open_sdk*"]
