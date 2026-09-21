@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "daxpay-open-sdk"
 version = "1.0.0"
-description = "DaxPay 开放支付平台 Python SDK（核心支付子集：pay / close / refund / query / 回调验签）"
+description = "DaxPay 开放支付平台 Python SDK（15 个开放接口：支付/退款/转账/分账/网关 + 回调验签 + 联调 Demo）"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "LGPL-3.0-only" }
@@ -29,3 +29,7 @@ Gitee = "https://gitee.com/opendaxpay/dax-pay-sdk-python"
 
 [tool.setuptools.packages.find]
 include = ["daxpay_open_sdk*"]
+
+# 联调 Demo 的调试页随包分发（与 Java 版把页面打进 jar 的做法一致）
+[tool.setuptools.package-data]
+"daxpay_open_sdk.demo" = ["*.html"]
