@@ -8,12 +8,12 @@ version = "1.0.0"
 description = "DaxPay 开放支付平台 Python SDK（15 个开放接口：支付/退款/转账/分账/网关 + 回调验签 + 联调 Demo）"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "LGPL-3.0-only" }
+license = { text = "Apache-2.0" }
 keywords = ["daxpay", "payment", "sdk", "alipay", "wechat"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.12",

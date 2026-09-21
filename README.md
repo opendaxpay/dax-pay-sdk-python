@@ -2,7 +2,7 @@
 
 DaxPay 开放支付平台 Python SDK，封装支付下单、关闭、退款、订单查询与回调验签。
 
-> **适配 DaxPay Open ≥ 1.0** · **Python 3.10+** · LGPL-3.0 · 依赖 `cryptography`（RSA 签名），HTTP 走标准库 `urllib`
+> **适配 DaxPay Open ≥ 1.0** · **Python 3.10+** · Apache-2.0 · 依赖 `cryptography`（RSA 签名），HTTP 走标准库 `urllib`
 
 ## 功能
 
@@ -133,4 +133,4 @@ RSA 签名值**字节级相等**（见 [`_doc/design/sdk-test-vectors.md`](https
 
 ## License
 
-LGPL-3.0，与主仓库 [DaxPay Open](https://gitee.com/dromara/dax-pay) 同协议。
+Apache-2.0，可自由用于商业项目与闭源集成，协议全文见 [LICENSE](LICENSE)。主仓库 [DaxPay Open](https://gitee.com/dromara/dax-pay) 核心为 LGPL-3.0-or-later，本 SDK 作为独立仓按 Apache-2.0 单独发布。
