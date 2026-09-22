@@ -26,6 +26,7 @@ from daxpay_open_sdk.models import (
     PayParam,
     PayQueryParam,
     PaySyncParam,
+    PingParam,
     RefundParam,
     RefundQueryParam,
     RefundSyncParam,
@@ -122,13 +123,22 @@ class DaxPayClient:
     # 执行入口
     # ==================================================================
 
-    def execute(self, path: str, param: Dict[str, Any]) -> DaxResult:
+    def execute(
+        self,
+        path: str,
+        param: Dict[str, Any],
+        *,
+        throw_on_biz_error: bool = True,
+    ) -> DaxResult:
         """通用执行入口
 
         :param path: 接口路径，如 `/unipay/pay`
         :param param: 业务参数（键名即报文键名）
-        :return: 平台响应（已验签、code 已确认为 0）
-        :raises DaxPayError: HTTP 异常 / 验签失败 / 业务 code != 0
+        :param throw_on_biz_error: False 时非 0 业务码不抛异常而是原样返回 DaxResult
+            （签名自检探针的职责是报告检查结果，失败码/失败消息本身就是有效答案）；
+            响应验签失败仍抛异常（那是平台公钥配置问题，属于硬错误而非探针答案）
+        :return: 平台响应（已验签；throw_on_biz_error=True 时 code 已确认为 0）
+        :raises DaxPayError: HTTP 异常 / 验签失败 / 业务 code != 0（后者仅在 throw_on_biz_error 时）
         """
         request_param: Dict[str, Any] = dict(param)
         # 注入公共字段（调用方已显式传入时不覆盖）
@@ -175,7 +185,10 @@ class DaxPayClient:
         if code != ErrorCode.SUCCESS:
             # 消息字段兼容：DaxResult 用 msg，管理 API Result 用 message（平台异常响应形状）
             msg = result.get("msg") or result.get("message") or ""
-            raise DaxPayError(code, msg)
+            if throw_on_biz_error:
+                raise DaxPayError(code, msg)
+            # 非 0 码时 data 必为空，原样返回（探针诊断路径）
+            return result
         return result
 
     # ==================================================================
@@ -261,6 +274,15 @@ class DaxPayClient:
     # ==================================================================
     # 探针与回调
     # ==================================================================
+
+    def signed_ping(self, param: PingParam) -> DaxResult:
+        """签名自检探针 — POST /unipay/ping（走完整验签链路，一键判定商户号/应用/私钥/签名串是否可用）
+
+        与免签名的 [ping][daxpay_open_sdk.client.DaxPayClient.ping] 互补：本方法由持商户私钥方发起，
+        非 0 业务码不抛异常而是原样返回，供调用方按 code 分类诊断（20052=验签失败且 msg 含服务端待签串；
+        10408-10411=nonce/时钟；其余=商户号/应用类）；响应验签失败仍抛异常（平台公钥配置问题）。
+        """
+        return self.execute("/unipay/ping", dict(param), throw_on_biz_error=False)
 
     def ping(self) -> str:
         """回调链路自检探针 — GET /unipay/callback/ping（免签名免登录，返回固定标识文本）

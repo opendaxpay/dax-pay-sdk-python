@@ -19,13 +19,13 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Deque, Dict, Optional
+from typing import Any, Callable, Deque, Dict, Optional, Union
 from urllib.parse import urlsplit
-
-from cryptography.hazmat.primitives import serialization
 
 from daxpay_open_sdk.client import DaxPayClient
 from daxpay_open_sdk.config import Config
+from daxpay_open_sdk.errors import DaxPayError
+from daxpay_open_sdk.rsa import validate_private_key_pem, validate_public_key_pem
 
 # 默认监听端口（五语言端口规划：go 9791 / node 9792 / php 9793 / python 9794 / java 9799）
 DEFAULT_PORT = 9794
@@ -36,9 +36,22 @@ MAX_CALLBACKS = 200
 # 调试页文件（随包分发，见 pyproject 的 package-data）
 INDEX_FILE = Path(__file__).with_name("index.html")
 
-# action → DaxPayClient 方法名映射表（15 个开放接口，新增接口只需在此登记一行）
-# Python SDK 的 param 就是 dict（TypedDict 仅编辑器提示），页面提交的参数可直传
-ACTIONS: Dict[str, str] = {
+def _signed_ping_action(client: DaxPayClient, param: Dict[str, Any]) -> None:
+    """signed-ping 的交易调试包装：非 0 业务码转成异常（与其它接口的失败回显一致）
+
+    探针 SDK 方法 `signed_ping` 本身不抛业务异常（探针职责是报告结果），
+    在交易调试路径上把它转成与其它接口一致的错误回显；完整诊断走 /demo/signed-ping。
+    """
+    result = client.signed_ping(param)
+    code = result.get("code", -1)
+    if code != 0:
+        raise DaxPayError(code, result.get("msg") or "")
+
+
+# action → SDK 调用映射表（15 个业务接口 + 签名自检探针，新增接口只需在此登记一行）
+# Python SDK 的 param 就是 dict（TypedDict 仅编辑器提示），页面提交的参数可直传；
+# 值为方法名字符串时走 getattr 分发，特殊行为（探针非 0 码转错误路径）登记可调用对象
+ACTIONS: Dict[str, Union[str, Callable[[DaxPayClient, Dict[str, Any]], None]]] = {
     # 支付族
     "pay": "pay",
     "close": "close",
@@ -59,6 +72,8 @@ ACTIONS: Dict[str, str] = {
     # 网关族
     "gateway-pre-pay": "gateway_pre_pay",
     "gateway-query": "gateway_query",
+    # 自检族：探针非 0 码在此转成异常，与其它接口的失败回显行为一致（完整诊断走 /demo/signed-ping）
+    "signed-ping": _signed_ping_action,
 }
 
 
@@ -202,7 +217,7 @@ class DemoHandler(BaseHTTPRequestHandler):
             if path == "/demo/config" and method in ("GET", "POST"):
                 self._handle_config(method)
                 return
-            # 以下三条必须排在 /demo/* 通配交易路由之前，
+            # 以下四条必须排在 /demo/* 通配交易路由之前，
             # 否则会被当作交易 action（解析空 body 报错）
             if method == "GET" and path == "/demo/callbacks":
                 records = self.state.callback_records()
@@ -215,6 +230,10 @@ class DemoHandler(BaseHTTPRequestHandler):
             # 连通性自检：服务端代调平台探针（浏览器直连平台地址会跨域，故由本服务中转）
             if method == "POST" and path == "/demo/ping":
                 self._handle_ping()
+                return
+            # 签名链路自检：服务端代调签名自检探针 POST /unipay/ping（「测试连接」第二段）
+            if method == "POST" and path == "/demo/signed-ping":
+                self._handle_signed_ping()
                 return
             # 交易调试（经 SDK 真实调用链）
             if method == "POST" and path.startswith("/demo/"):
@@ -260,7 +279,7 @@ class DemoHandler(BaseHTTPRequestHandler):
                 private_key = None
             else:
                 try:
-                    serialization.load_pem_private_key(value.encode("utf-8"), password=None)
+                    validate_private_key_pem(value)
                 except Exception as error:  # noqa: BLE001 - 校验失败细节回显给页面
                     self._send_json(400, {"error": f"商户私钥无效: {error}"})
                     return
@@ -273,7 +292,7 @@ class DemoHandler(BaseHTTPRequestHandler):
                 public_key = None
             else:
                 try:
-                    serialization.load_pem_public_key(value.encode("utf-8"))
+                    validate_public_key_pem(value)
                 except Exception as error:  # noqa: BLE001 - 校验失败细节回显给页面
                     self._send_json(400, {"error": f"平台公钥无效: {error}"})
                     return
@@ -317,6 +336,57 @@ class DemoHandler(BaseHTTPRequestHandler):
         self._send_json(200, result)
 
     # ------------------------------------------------------------------
+    # /demo/signed-ping 签名链路自检（服务端中转，规避浏览器跨域）
+    # ------------------------------------------------------------------
+
+    def _handle_signed_ping(self) -> None:
+        """代调签名自检探针 `POST /unipay/ping`，供页面「测试连接」第二段使用：
+        判定当前配置的商户号/应用/商户私钥/签名串构造是否正确、能否发起真实调用
+        """
+        snapshot = self.state.snapshot()
+        result: Dict[str, Any] = {"serviceUrl": snapshot.get("serviceUrl")}
+        begin = time.monotonic()
+        private_key = (snapshot.get("privateKey") or "").strip()
+        public_key = (snapshot.get("publicKey") or "").strip()
+        if not private_key or not public_key:
+            result["success"] = False
+            result["hint"] = (
+                "尚未配置商户私钥，请先在「连接配置」中填写"
+                if not private_key
+                else "尚未配置平台公钥（响应无法验签），请先在「连接配置」中填写"
+            )
+            self._send_json(200, result)
+            return
+        # observer 捕获发出报文与原始响应，供页面比对签名串（发出 JSON vs 服务端待签串）
+        captured: Dict[str, Optional[str]] = {"request": None, "response": None}
+        client = DaxPayClient(self.state.to_config(snapshot)).set_observer(
+            on_request=lambda signed: captured.__setitem__("request", signed),
+            on_response=lambda raw: captured.__setitem__("response", raw),
+        )
+        try:
+            probe = client.signed_ping({})
+            code = probe.get("code", -1)
+            result["success"] = code == 0
+            result["code"] = code
+            result["msg"] = probe.get("msg")
+            result["data"] = probe.get("data")
+            if code != 0:
+                result["hint"] = _classify_probe_error(code)
+        except Exception as error:  # noqa: BLE001 - 硬错误：网络不通 / HTTP 非 200 / 响应验签失败（平台公钥问题）
+            message = str(error)
+            result["success"] = False
+            result["error"] = message
+            if "响应验签失败" in message:
+                result["hint"] = "平台响应验签失败：请核对「连接配置」中的平台公钥"
+            elif "HTTP 404" in message:
+                result["hint"] = "网关未放行「商户开放 API」(/unipay) 接口组，需在部署面板开启"
+        finally:
+            result["requestBody"] = captured["request"]
+            result["responseBody"] = captured["response"]
+            result["durationMs"] = int((time.monotonic() - begin) * 1000)
+        self._send_json(200, result)
+
+    # ------------------------------------------------------------------
     # /demo/* 交易调试
     # ------------------------------------------------------------------
 
@@ -354,8 +424,8 @@ class DemoHandler(BaseHTTPRequestHandler):
             )
             return
 
-        method_name = ACTIONS.get(action)
-        if method_name is None:
+        action_impl = ACTIONS.get(action)
+        if action_impl is None:
             self._send_json(404, {"error": f"unknown action: {action}"})
             return
 
@@ -369,7 +439,10 @@ class DemoHandler(BaseHTTPRequestHandler):
         begin = time.monotonic()
         error_message: Optional[str] = None
         try:
-            getattr(client, method_name)(dict(param))
+            if callable(action_impl):
+                action_impl(client, dict(param))
+            else:
+                getattr(client, action_impl)(dict(param))
         except Exception as error:  # noqa: BLE001 - SDK 抛出（业务失败/验签失败/网络异常）属有效联调结果
             error_message = str(error)
         duration_ms = int((time.monotonic() - begin) * 1000)
@@ -505,6 +578,17 @@ def _parse_result(response_body: Optional[str]) -> Any:
         return json.loads(response_body)
     except Exception:  # noqa: BLE001 - 非 JSON 响应原样透出
         return {"parseError": response_body}
+
+
+def _classify_probe_error(code: int) -> str:
+    """探针错误码分类提示（对照契约 6.14 诊断表）"""
+    if code == 20052:
+        return "验签失败：商户私钥与平台上配置的公钥不配对，或签名串构造不一致——比对「发出报文」与响应 msg 中的服务端待签串"
+    if code in (10408, 10409):
+        return "Nonce 防重放拦截：请勿复用请求（每次点击都会生成新 nonce）"
+    if code in (10410, 10411):
+        return "请求时间超窗：本机时钟偏差过大，或 reqTime 未按 GMT+8 yyyy-MM-dd HH:mm:ss 字面量"
+    return f"商户号/应用类错误（code {code}）：核对 mchNo 与 appId 是否存在且启用"
 
 
 # ======================================================================

@@ -1,4 +1,4 @@
-"""请求/响应模型 — 对照 sdk-contract.md 第二、四、五及 6.1–6.13 节
+"""请求/响应模型 — 对照 sdk-contract.md 第二、四、五及 6.1–6.14 节
 
 键名即报文键名（camelCase），SDK 直接序列化该 dict，不做键名转换。
 TypedDict 仅用于编辑器提示，运行时就是普通 dict。
@@ -487,6 +487,30 @@ class GatewayOrderResult(TypedDict, total=False):
     returnUrl: str  # 同步跳转地址
 
 
+# ======================================================================
+# 自检探针（6.14）
+# ======================================================================
+
+
+class PingParam(CommonParam, total=False):
+    """签名自检探针请求参数（契约 6.14 节）
+
+    仅公共参数、无业务字段；mchNo / appId / reqId / reqTime / nonceStr 由 SDK 注入。
+    """
+
+
+class PingResult(TypedDict, total=False):
+    """签名自检探针结果（契约 6.14 节）
+
+    回显平台侧解析结果，供对接方核对商户身份与签名串构造。
+    """
+
+    mchNo: str  # 商户号
+    appId: str  # 应用号
+    appFromDefault: bool  # 是否回落平台默认应用
+    serverSignStr: str  # 服务端待签串（验签失败时与本地发出报文比对定位差异）
+
+
 __all__ = [
     "AllocDetail",
     "AllocOrderResult",
@@ -511,6 +535,8 @@ __all__ = [
     "PayResult",
     "PaySyncParam",
     "PaySyncResult",
+    "PingParam",
+    "PingResult",
     "RefundOrderResult",
     "RefundParam",
     "RefundQueryParam",
