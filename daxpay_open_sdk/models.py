@@ -107,11 +107,10 @@ class PayParam(CommonParam, total=False):
 class NormalPayResult(TypedDict, total=False):
     """支付下单响应结果（契约 6.1 节）"""
 
-    orderId: int  # 订单 ID
     bizOrderNo: str  # 商户订单号
     orderNo: str  # 平台业务单号
     tradeNo: str  # 资金交易号
-    status: str  # wait / progress / success / close / cancel / fail / timeout
+    status: str  # 资金态: init / processing / success / fail / close / cancel
     payBody: str  # 支付参数体（二维码链接 / 调起参数 / 跳转 URL）
     payBodyType: str  # code_url / pay_info / redirect_url
 
@@ -148,6 +147,7 @@ class PayOrderResult(TypedDict, total=False):
     method: str  # 支付方式
     limitPay: str  # 限制用户支付类型
     amount: int  # 金额（分）
+    currency: str  # 币种 ISO 4217（如 cny/usd，缺省 cny）
     realAmount: int  # 实收金额（分）
     refundableBalance: int  # 可退款余额（分）
     status: str  # 支付状态
